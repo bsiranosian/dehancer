@@ -1,0 +1,9 @@
+### Notes on getting histone modification data from ENCODE
+
+We want h3k27ac and h3k04me3 from as many cell lines as possible
+Should use the peaks and the signal track?
+We have data from 
+	Broad: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeBroadHistone/ AND http://genome.ucsc.edu/cgi-bin/hgFileUi?db=hg19&g=wgEncodeBroadHistone
+	Stanford: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeSydhHistone/ AND http://genome.ucsc.edu/cgi-bin/hgFileUi?db=hg19&g=wgEncodeSydhHistone
+	UW: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeUwHistone/ AND http://genome.ucsc.edu/cgi-bin/hgFileUi?db=hg19&g=wgEncodeUwHistone	
+
