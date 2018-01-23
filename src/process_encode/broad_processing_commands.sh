@@ -50,6 +50,61 @@ mkdir intersect
 # promoters have K3k27ac AND H3k04me3
 # the merge of these sets will be used to make a complement for the negative set 
 
+# location of the genome bedfile
+genome_bed=/users/bsiranos/analysis/enhancer_conservation/hg19_sort.genome
+# cells=("Dnd41" "Gm12878" "H1hesc" "Helas3" "Hepg2" "Hmec" "Hsmm" "Hsmmt" "Huvec" "K562" "Monocd14ro1746" "Nha" "Nhdfad" "Nhek" "Nhlf" "Osteobl" )
+cells=($(ls bed/*H3k27ac* | cut -f1 -d'_'| cut -f 2 -d'/'))
+for cell in "${cells[@]}"; do
+	# with this method we miss enhancers and promoters that are less than 2kb in length
+	# in addition, we also want regions that only have 1000bp inside the interval 
+	# this can be fixed by extending enhancer and promoter regions by 100bp on either side
+	# then any interval will have at least one window in it
+	# and the end 1000 bp of a region will have a chance to get a window that extends
+	# past the end of the interval by 1000bp
+	# run this through a merge to concat any linked intervals after
+	echo "creating enhancer and promoter set: " $cell
+	bedtools intersect -a bed/$cell"_H3k27ac.bed" -b bed/$cell"_H3k04me3.bed" -v | bedtools sort | bedtools merge > intersect/$cell"_enhancers.bed"
+	bedtools intersect -a bed/$cell"_H3k27ac.bed" -b bed/$cell"_H3k04me3.bed" | bedtools sort | bedtools merge > intersect/$cell"_promoters.bed"
+	cat bed/$cell"_H3k27ac.bed" bed/$cell"_H3k04me3.bed" | bedtools sort | bedtools merge  > intersect/$cell"_mergepeak.bed"
+	bedtools complement -i intersect/$cell"_mergepeak.bed" -g $genome_bed > intersect/$cell"_negative.bed"
+done
+
+# make a set of windows that tile the genome with a given size and step
+window_size=2000
+step_size=1000
+bedtools makewindows -g $genome_bed -w $window_size -s $step_size | awk '(($3-$2)==2000) { print }' > genome_tile_windows.bed
+# get fasta sequences from each of these windows
+# extract each of these from the genome
+hg19_genome=/mnt/data/annotations/by_organism/human/hg19.GRCh37/hg19.genome.fa
+bedtools getfasta -fi $hg19_genome -bed genome_tile_windows.bed > fasta/genome_tile_windows.fa
+
+# now get if each of these windows intersects with the enhancer, promoter, or negative set for each cell line
+# must overlap by at least 1000bp 
+mkdir window_calls
+for cell in "${cells[@]}"; do
+	echo "Calling window intersections for: " $cell
+
+	bedtools intersect -a genome_tile_windows.bed -b intersect/$cell"_enhancers.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_enhancer_calls.txt'
+	bedtools intersect -a genome_tile_windows.bed -b intersect/$cell"_promoters.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_promoter_calls.txt'
+	# and then negative set
+	# must not intersect any of the peaks, meaning they must be
+	# completely containeed in the complement 
+	bedtools intersect -a genome_tile_windows.bed -b intersect/Dnd41_negative.bed -wao -f 1.0 | awk '{print ($7==2000?1:0)}' > window_calls/$cell'_negative_calls.txt'
+done
+
+# compile windo calls into a nice matrix
+# just enhancers and promoters now
+cd window_calls
+ls -1 *er_calls.txt | cut -d'_' -f 1,2 | tr \\n \\t > all.calls
+echo '' >> all.calls
+paste *er_calls.txt >> all.calls
+
+
+
+
+################################################################
+# OLD. Now using a fixed set of windows across many cell types #
+################################################################
 # extend positive peaks by this amount
 slop_positive=1000
 

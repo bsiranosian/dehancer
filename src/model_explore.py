@@ -8,18 +8,17 @@ try:
 except ImportError:
     from sklearn.cross_validation import train_test_split  # sklearn < 0.18
 import sys
- 
+
 import socket
 hn = socket.gethostname()
 if hn=='nandi':
     # for use on Nandi 
     fastaDir='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/fasta'
-    saveDir='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/dragonn/Dnd41_short'
-    THEANO_FLAGS='device=cuda3,cuda.root=/usr/bin,floatX=float32,force_device=True'
+    saveDir='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/dragonn/Dnd41'
 elif hn=='aspire':
     # for use on aspire
     fastaDir='/home/ben/ak_local/enhancer_conservation/encode_data/broad/fasta'
-    saveDir='/home/ben/ak_local/enhancer_conservation/encode_data/broad/dragonn/Dnd41_short'
+    saveDir='/home/ben/ak_local/enhancer_conservation/encode_data/broad/dragonn/Dnd41'
 
 # make save dir
 if not  exists(saveDir):
@@ -36,9 +35,9 @@ num_epochs = 100
 use_deep_CNN = False
 use_RNN = False
 
-enhancerFasta=join(fastaDir, cell+'_enhancers_windows_short.fa')
-promoterFasta=join(fastaDir, cell+'_promoters_windows_short.fa')
-negativeFasta=join(fastaDir, cell+'_negative_windows_short.fa')
+enhancerFasta=join(fastaDir, cell+'_enhancers_windows.fa')
+promoterFasta=join(fastaDir, cell+'_promoters_windows.fa')
+negativeFasta=join(fastaDir, cell+'_negative_windows.fa')
 
 # load up the sequences and one hot encode them 
 eoh = encode_fasta_sequences(enhancerFasta)
