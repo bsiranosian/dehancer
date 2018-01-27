@@ -1,0 +1,10 @@
+# todo to make this model better
+# weight by (1/fraction pos), (1/fraction neg)
+	# weighted binary crossentropy
+# implement positive accuracy and negative accuracy callbacks
+	# add as arguments to compile function 
+	# log to csv with CSVLogger?
+# eliminate any windows with Ns
+	# quantify how many are in each window
+	# eliminate regions that are in Anshuls exclude list
+# bugcheck in split train test

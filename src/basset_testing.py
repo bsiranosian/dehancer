@@ -59,6 +59,26 @@ def data_generator(windowFastaFile, windowCallFile, batchSize=256, callHeader=Tr
         numGenerated += batchSize
         yield tuple([batchOneHot, batchCalls])
 
+# counts number of Ns in window.
+# writes output as a newline separated list to outTxt
+# otherwise returns count of Ns per window
+def count_N_in_window(windowFastaFile, outTxt=None):
+    # windowFastaFile = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/fasta/genome_tile_windows.fa'
+    ff = open(windowFastaFile, 'rU')
+    fastaGen = SeqIO.parse(ff, "fasta")
+    windowN = np.array([])
+    while True:
+        try:
+            seq = fastaGen.next()
+            numN = seq.seq.upper().count('N')
+            windowN = np.append(windowN, numN)
+        except StopIteration:
+            break
+    if outTxt is not None:
+        np.savetxt(outTxt, windowN, delimiter='\n')
+    else:
+        return(windoN)
+
 
 # split up the data into train, test, validation sets
 # outFiles is a list of 6 files: fasta train, fasta valid, fasta test
@@ -237,108 +257,62 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeatu
         # pdb.set_trace()
     return model
 
-'''
-# and do same prediction as before
-from os.path import join, exists
-from os import makedirs, chdir
-import numpy as np
-try:
-    from sklearn.model_selection import train_test_split  # sklearn >= 0.18
-except ImportError:
-    from sklearn.cross_validation import train_test_split  # sklearn < 0.18
-import sys
 
-import socket
-hn = socket.gethostname()
-if hn=='nandi':
-    # for use on Nandi 
-    fastaDir='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/fasta'
-    saveDir='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/dragonn/Dnd41_basset_short'
-elif hn=='aspire':
-    # for use on aspire
-    fastaDir='/home/ben/ak_local/enhancer_conservation/encode_data/broad/fasta'
-    saveDir='/home/ben/ak_local/enhancer_conservation/encode_data/broad/dragonn/Dnd41_basset_short'
-
-# make save dir
-if not  exists(saveDir):
-    print('making output directory: ' + saveDir)
-    makedirs(saveDir) 
-chdir(saveDir)
-'''
-
-
-# # start with one cell line for now 
-# cell='Dnd41'
-# do_hyperparameter_search = False
-# seq_length = 2000
-# num_hyperparameter_trials = 50
-# num_epochs = 100
-# use_deep_CNN = False
-# use_RNN = False
-
-# enhancerFasta=join(fastaDir, cell+'_enhancers_windows_short.fa')
-# promoterFasta=join(fastaDir, cell+'_promoters_windows_short.fa')
-# negativeFasta=join(fastaDir, cell+'_negative_windows_short.fa')
-
-# # load up the sequences and one hot encode them 
-# eoh = encode_fasta_sequences(enhancerFasta)
-# eoh = np.transpose(eoh, (0,2,1,3))
-
-# poh = encode_fasta_sequences(promoterFasta)
-# poh = np.transpose(poh, (0,2,1,3))
-# noh = encode_fasta_sequences(negativeFasta)
-# noh = np.transpose(noh, (0,2,1,3))
-
-# # first lets just do enhancer predicition
-# encodedSequences = np.append(eoh,noh, axis=0)
-# labels = np.append(np.repeat(True, np.shape(eoh)[0]), np.repeat(False, np.shape(noh)[0]))
-# labels = np.reshape(labels, newshape=(len(labels), 1))
-
-# # split into training and validation
-# testFraction = 0.2
-# validationFraction = 0.2
-# X_train, X_test, y_train, y_test = train_test_split(encodedSequences, labels, test_size=testFraction)
-# X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=validationFraction)
-
-# # add reverse complement, to training set only
-# X_train = np.concatenate((X_train, reverse_complement(X_train)))
-# y_train = np.concatenate((y_train, y_train))
-
-# # Randomly splitting data into training and test 
-# random_order = np.arange(len(X_train))
-# np.random.shuffle(random_order)
-# X_train = X_train[random_order]
-# y_train = y_train[random_order]
-
-'''
-model=getModelGivenModelOptionsAndWeightInits(None, None, None)
-
-inFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test'
-inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa','calls_train.txt','calls_valid.txt','calls_test.txt']
-inFiles = [join(inFileBase, i) for i in inFileAdd]
-
-nb_trainSamples = int((sum(1 for line in open(inFiles[0])) /2) * 0.98)
-nb_validationSamples = int((sum(1 for line in open(inFiles[1])) /2) * 0.98)
-
-# or for testing 
-nb_trainSamples = 100000
-nb_validationSamples = 100000
-
-model.fit_generator(generator=data_generator(inFiles[0], inFiles[3], batchSize=512),
-                    steps_per_epoch =  nb_trainSamples, epochs=100, show_accuracy=True,
-                    validation_data = data_generator(inFiles[1], inFiles[4], batchSize=512), 
-                    validation_steps=validSteps)
-
-'''
-
-
-# only predicting a few features, should be easier
-# useFeatures = np.array([0,2,4,6])
-useFeatures = np.array([i for i in range(32)])
-model=getModelGivenModelOptionsAndWeightInits(None, None, None, nFeature=len(useFeatures))
 from os.path import join
 import numpy as np
 import sys
+
+if False:
+    # build model of enhancers and promoters across 16 cell types
+    useFeatures = np.array([i for i in range(32)])
+    trainEpochs = 10
+    saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/allcell_enh_pro/'
+    saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
+
+    # create model
+    inFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test'
+    inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa',
+                 'calls_train.txt','calls_valid.txt','calls_test.txt']
+    # inFileAdd = ['short_fasta_train.fa','short_fasta_valid.fa','short_fasta_test.fa',
+    #              'short_calls_train.txt','short_calls_valid.txt','short_calls_test.txt']
+    inFiles = [join(inFileBase, i) for i in inFileAdd]
+
+
+    model=getModelGivenModelOptionsAndWeightInits(None, None, None, nFeature=len(useFeatures))
+    batchSize=256
+    nb_trainSamples = int(sum(1 for line in open(inFiles[3])) -1)
+    nb_validationSamples = int(sum(1 for line in open(inFiles[4])) -1)
+    trainSteps = np.floor(nb_trainSamples / batchSize)
+    validSteps = np.floor(nb_trainSamples / batchSize)
+    trainGenerator = data_generator(inFiles[0], inFiles[3],
+        batchSize=batchSize, subsetFeatureList=useFeatures)
+    validGenerator = data_generator(inFiles[1], inFiles[4], 
+        batchSize=batchSize, subsetFeatureList=useFeatures)
+
+    # train model
+    history  = model.fit_generator(generator=trainGenerator,
+        steps_per_epoch=trainSteps, epochs=trainEpochs, 
+        validation_data=validGenerator, validation_steps=validSteps)
+
+    model.save(join(saveDir, saveName))
+
+    # test with test data
+    g = generator=data_generator(inFiles[2], inFiles[5], batchSize=batchSize, subsetFeatureList=useFeatures)
+    gn = g.next()
+    model.test_on_batch(gn[0], gn[1])
+    model.evaluate_generator(generator=data_generator(inFiles[2], inFiles[5],
+                                       batchSize=batchSize, subsetFeatureList=useFeatures),
+                             steps=validSteps)
+
+
+# only predicting a few features, should be easier
+# Enhancers in Dnd41 only
+useFeatures = np.array([0])
+trainEpochs = 10
+saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/Dnd41_enh/'
+saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
+
+# create model
 inFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test'
 inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa',
              'calls_train.txt','calls_valid.txt','calls_test.txt']
@@ -346,19 +320,22 @@ inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa',
 #              'short_calls_train.txt','short_calls_valid.txt','short_calls_test.txt']
 inFiles = [join(inFileBase, i) for i in inFileAdd]
 
+
+model=getModelGivenModelOptionsAndWeightInits(None, None, None, nFeature=len(useFeatures))
 batchSize=256
 nb_trainSamples = int(sum(1 for line in open(inFiles[3])) -1)
 nb_validationSamples = int(sum(1 for line in open(inFiles[4])) -1)
 trainSteps = np.floor(nb_trainSamples / batchSize)
 validSteps = np.floor(nb_trainSamples / batchSize)
 
-# or for testing 
-# nb_trainSamples = 10240
-# nb_validationSamples = 1024
+trainGenerator = data_generator(inFiles[0], inFiles[3],
+    batchSize=batchSize, subsetFeatureList=useFeatures)
+validGenerator = data_generator(inFiles[1], inFiles[4], 
+    batchSize=batchSize, subsetFeatureList=useFeatures)
 
-model.fit_generator(generator=data_generator(inFiles[0], inFiles[3], batchSize=batchSize, subsetFeatureList=useFeatures),
-                    steps_per_epoch =  trainSteps, epochs=10, 
-                    validation_data = data_generator(inFiles[1], inFiles[4], batchSize=batchSize, subsetFeatureList=useFeatures), 
-                    validation_steps=validSteps)
+# train model
+history  = model.fit_generator(generator=trainGenerator,
+    steps_per_epoch=trainSteps, epochs=trainEpochs, 
+    validation_data=validGenerator, validation_steps=validSteps)
 
-
+model.save(join(saveDir, saveName))
