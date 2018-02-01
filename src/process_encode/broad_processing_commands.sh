@@ -70,35 +70,53 @@ for cell in "${cells[@]}"; do
 done
 
 # make a set of windows that tile the genome with a given size and step
+mkdir genome_tile_windows
 window_size=2000
 step_size=1000
-bedtools makewindows -g $genome_bed -w $window_size -s $step_size | awk '(($3-$2)==2000) { print }' > genome_tile_windows.bed
+bedtools makewindows -g $genome_bed -w $window_size -s $step_size | awk '(($3-$2)==2000) { print }' > genome_tile_windows/genome_tile_windows.bed
+# now paste in number of N per windows, pre calculated from a python script
+window_numberN=genome_tile_windows/window_numberN.txt
+window_numberN_bed=genome_tile_windows/genome_tile_windows_numberN.bed 
+paste genome_tile_windows/genome_tile_windows.bed $window_numberN > $window_numberN_bed
+# filter based on some threshold of N values
+# 3137021 windows, 2896394 have no N 
+max_allowed_N=1
+filter_N_file_out=genome_tile_windows/genome_tile_windows_filterN.bed
+awk -v thresh=$max_allowed_N '{if($4<thresh) { print  $1, $2, $3 }}' $window_numberN_bed | tr ' ' '\t' > $filter_N_file_out
+
+# filter based on other criteria
+filter_file_1=/users/bsiranos/analysis/enhancer_conservation/wgEncodeDacMapabilityConsensusExcludable.bed
+filter_file_1_out=genome_tile_windows/genome_tile_windows_filterN_filterMap.bed
+bedtools intersect -v -a $filter_N_file_out -b $filter_file_1 > $filter_file_1_out
+# 2884486 lines in this file after removing these bad regions
+
 # get fasta sequences from each of these windows
 # extract each of these from the genome
 hg19_genome=/mnt/data/annotations/by_organism/human/hg19.GRCh37/hg19.genome.fa
-bedtools getfasta -fi $hg19_genome -bed genome_tile_windows.bed > fasta/genome_tile_windows.fa
+bedtools getfasta -fi $hg19_genome -bed $filter_file_1_out > fasta/genome_tile_windows.fa
 
 # now get if each of these windows intersects with the enhancer, promoter, or negative set for each cell line
 # must overlap by at least 1000bp 
 mkdir window_calls
+cells=($(ls bed/*H3k27ac* | cut -f1 -d'_'| cut -f 2 -d'/'))
 for cell in "${cells[@]}"; do
 	echo "Calling window intersections for: " $cell
 
-	bedtools intersect -a genome_tile_windows.bed -b intersect/$cell"_enhancers.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_enhancer_calls.txt'
-	bedtools intersect -a genome_tile_windows.bed -b intersect/$cell"_promoters.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_promoter_calls.txt'
+	bedtools intersect -a $filter_file_1_out -b intersect/$cell"_enhancers.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_enhancer_calls.txt'
+	bedtools intersect -a $filter_file_1_out -b intersect/$cell"_promoters.bed" -wao -f 0.5 | awk '{print ($7>999?1:0)}' > window_calls/$cell'_promoter_calls.txt'
 	# and then negative set
 	# must not intersect any of the peaks, meaning they must be
 	# completely containeed in the complement 
-	bedtools intersect -a genome_tile_windows.bed -b intersect/Dnd41_negative.bed -wao -f 1.0 | awk '{print ($7==2000?1:0)}' > window_calls/$cell'_negative_calls.txt'
+	# bedtools intersect -a $filter_file_1_out -b intersect/Dnd41_negative.bed -wao -f 1.0 | awk '{print ($7==2000?1:0)}' > window_calls/$cell'_negative_calls.txt'
 done
 
-# compile windo calls into a nice matrix
+# compile window calls into a nice matrix
 # just enhancers and promoters now
 cd window_calls
 ls -1 *er_calls.txt | cut -d'_' -f 1,2 | tr \\n \\t > all.calls
 echo '' >> all.calls
 paste *er_calls.txt >> all.calls
-
+cd $wdir
 
 
 

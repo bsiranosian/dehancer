@@ -4,8 +4,10 @@ import numpy as np
 import pdb
 from Bio import SeqIO
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from os.path import join
+from os.path import join, exists
+from os import makedirs
 from random import shuffle
+import sys 
 
 # one hot encode from dragonn repo
 def one_hot_encode(sequences):
@@ -29,6 +31,7 @@ def data_generator(windowFastaFile, windowCallFile, batchSize=256, callHeader=Tr
     # get number of fasta sequences in the file
     totalEntries = sum(1 for line in open(windowCallFile)) - int(callHeader)
     maxEntries = int(totalEntries / batchSize) * batchSize
+    # print('maxEntries ' + str(maxEntries))
 
     ff = open(windowFastaFile, 'rU')
     cf = open(windowCallFile, 'rU')
@@ -48,7 +51,7 @@ def data_generator(windowFastaFile, windowCallFile, batchSize=256, callHeader=Tr
             # read first header line of calls
             if callHeader:
                 trash=cf.readline()
-
+            numGenerated=0
         batchSequences = np.array([str(fastaGen.next().seq.upper()) for i in range(batchSize)])
         batchOneHot = one_hot_encode(batchSequences)
         batchOneHot = np.transpose(batchOneHot, (0,2,1,3))
@@ -115,12 +118,14 @@ def split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles,
             # do same thing for calls
             batchCalls = np.array([np.fromstring(cf.readline(), dtype=int, sep='\t') for i in range(batchSize)])
             
-            # now do balancing by counting negatives that are only negative across
-            # all classes
+            # can do balancing in two ways. From a single task, or
+            # counting negatives that are only negative across all classes
+            # go with single column for now
             if balanced:
+                useCol = batchCalls[:,balancedColumn]
                 rowSum = np.sum(batchCalls, axis=1)
-                negInd = np.where(rowSum==0)[0]
-                posInd = np.where(rowSum>0)[0]
+                negInd = np.where(useCol==0)[0]
+                posInd = np.where(useCol>0)[0]
                 npos = len(posInd)
                 nneg = len(negInd)
                 print('npos: ' + str(npos), ' nneg: ' + str(nneg))
@@ -136,12 +141,11 @@ def split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles,
 
             # shuffle before splitting
             shuffle(finalInd)
-
-            validEntries = int(np.ceil(newBatchSize * validFraction ))
+            # number of entries in each set
+            validEntries = int(np.ceil(newBatchSize * validFraction))
             testEntries = int(np.ceil(newBatchSize * testFraction))
             trainEntries = newBatchSize - validEntries - testEntries
-
-
+            # get index for each set
             trainIdx = np.sort(finalInd[0:trainEntries])
             validIdx = np.sort(finalInd[trainEntries:trainEntries+validEntries])
             testIdx = np.sort(finalInd[trainEntries+validEntries:])
@@ -174,12 +178,19 @@ def split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles,
 # outFiles = [join(outFileBase, i) for i in outFileAdd]
 # split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles)
 # for making a balanced dataset
-# inputFasta = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/fasta/genome_tile_windows.fa'
-# inputCalls = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/window_calls/all.calls'
-# outFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test_balanced'
-# outFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa','calls_train.txt','calls_valid.txt','calls_test.txt']
-# outFiles = [join(outFileBase, i) for i in outFileAdd]
-# split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles, balanced=True)
+# for eash task 
+# tasks = [i for i in range(32)]
+# for task in tasks:
+#     inputFasta = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/fasta/genome_tile_windows.fa'
+#     inputCalls = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/window_calls/all.calls'
+#     outFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test_balanced/task_' + str(task)
+#     if not exists(outFileBase):
+#         print('making ' + outFileBase)
+#         makedirs(outFileBase)
+
+#     outFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa','calls_train.txt','calls_valid.txt','calls_test.txt']
+#     outFiles = [join(outFileBase, i) for i in outFileAdd]
+#     split_fasta_calls_train_validate_test(inputFasta, inputCalls, outFiles, balanced=True, balancedColumn=task)
 
 
 # metrics from old Keras code
@@ -267,7 +278,7 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
 
 
 # nfeature is the number of output features
-def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeature=32):
+def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, taskSubset=None):
     import numpy as np
     np.random.seed(1234)
     import keras
@@ -281,6 +292,16 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeatu
     from keras.regularizers import l1, l2    
     from keras import backend as K
     from keras import metrics
+
+    # taskSubset can be used to select a list of tasks for the classifier
+    # if none, then do all, 32 in this case
+    if taskSubset==None:
+        taskSubset = np.array([i for i in range(32)])
+        nTask = len(taskSubset)
+    elif type(taskSubset) == int:
+        nTask = 1
+    else:
+        nTask = len(taskSubset)
 
     model=Sequential()
     model.add(Conv2D(filters=300,kernel_size=(1,19),input_shape=(4,1,2000)))
@@ -310,7 +331,7 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeatu
     model.add(Activation('relu'))
     model.add(Dropout(0.3))
 
-    model.add(Dense(nFeature))
+    model.add(Dense(nTask))
     model.add(Activation("sigmoid"))
     metrics=["accuracy",precision,recall, positive_accuracy,
             negative_accuracy, predicted_positives, predicted_negatives,
@@ -319,6 +340,12 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeatu
     if (w0_file!=None and w1_file!=None):
         w0=[float(i) for i in open(w0_file,'r').read().strip().split('\n')]
         w1=[float(i) for i in open(w1_file,'r').read().strip().split('\n')]
+        if nTask==1:
+            w0=[w0[taskSubset]]
+            w1=[w1[taskSubset]]
+        else:
+            w0=w0[taskSubset]
+            w1=w1[taskSubset]
         loss=get_weighted_binary_crossentropy(w0_weights=w0,w1_weights=w1)
         model.compile(optimizer=adam,loss=loss,
             metrics=metrics)
@@ -330,184 +357,3 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, nFeatu
 
 if __name__ == '__main__':
     main()
-
-def main():
-    from os.path import join, exists
-    from os import makedirs
-    import numpy as np
-    import sys
-
-    balanced =True
-    if not balanced:
-        allFeatures=True
-        if allFeatures:
-            # enhancers and promoters across 16 cell lines
-            useFeatures = np.array([i for i in range(32)])
-            # positive and negative call weights, for each cell line
-            positiveCallWeightsFile='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test/positive_call_weights.txt'
-            negativeCallWeightsFile='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test/negative_call_weights.txt'
-
-            trainEpochs = 10
-            saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/allcell_enh_pro/'
-            saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
-
-        else: 
-            # only predicting a few features, should be easier
-            # Enhancers in Dnd41 only
-            useFeatures = np.array([0])
-            # positive and negative call weights, for each cell line
-            positiveCallWeightsFile='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test/Dnd41_positive_call_weights.txt'
-            negativeCallWeightsFile='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test/Dnd41_negative_call_weights.txt'
-
-            trainEpochs = 10
-            saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/Dnd41_enh/'
-            saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
-
-
-        # create save dir if it doesnt exist
-        if not exists(saveDir):
-            print('making ' + saveDir)
-            makedirs(saveDir)
-        # create model
-        inFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test'
-        inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa',
-                     'calls_train.txt','calls_valid.txt','calls_test.txt']
-        # inFileAdd = ['short_fasta_train.fa','short_fasta_valid.fa','short_fasta_test.fa',
-        #              'short_calls_train.txt','short_calls_valid.txt','short_calls_test.txt']
-        inFiles = [join(inFileBase, i) for i in inFileAdd]
-
-
-        model=getModelGivenModelOptionsAndWeightInits(
-            positiveCallWeightsFile, negativeCallWeightsFile,
-            None, nFeature=len(useFeatures))
-
-        batchSize=256
-        nb_trainSamples = int(sum(1 for line in open(inFiles[3])) -1)
-        nb_validationSamples = int(sum(1 for line in open(inFiles[4])) -1)
-        trainSteps = np.floor(nb_trainSamples / batchSize)
-        validSteps = np.floor(nb_trainSamples / batchSize)
-
-        trainSteps=10
-        validSteps=10
-        trainGenerator = data_generator(inFiles[0], inFiles[3],
-            batchSize=batchSize, subsetFeatureList=useFeatures)
-        validGenerator = data_generator(inFiles[1], inFiles[4], 
-            batchSize=batchSize, subsetFeatureList=useFeatures)
-
-        # train model
-        history  = model.fit_generator(generator=trainGenerator,
-            steps_per_epoch=trainSteps, epochs=trainEpochs, 
-            validation_data=validGenerator, validation_steps=validSteps)
-
-        model.save(join(saveDir, saveName))
-
-    elif balanced:
-        # balanced dataset
-        allFeatures=True
-        if allFeatures:
-            # enhancers and promoters across 16 cell lines
-            useFeatures = np.array([i for i in range(32)])
-            trainEpochs = 100
-            saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/allcell_enh_pro_balanced/'
-            saveDirFigures = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/allcell_enh_pro_balanced/figures'
-            saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
-            modelFile = join(saveDir, saveName)
-        else: 
-            # only predicting a few features, should be easier
-            # Enhancers in Dnd41 only
-            useFeatures = np.array([0])
-            trainEpochs = 100
-            saveDir = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/Dnd41_enh_balanced/'
-            saveDirFigures = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/trained_models/Dnd41_enh_balanced/figures'
-            saveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
-            modelFile = join(saveDir, saveName)
-
-
-        # create save dir if it doesnt exist
-        if not exists(saveDir):
-            print('making ' + saveDir)
-            makedirs(saveDir)
-        if not exists(saveDirFigures):
-            print('making ' + saveDirFigures)
-            makedirs(saveDirFigures)
-        # create model
-        inFileBase = '/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test_balanced'
-        inFileAdd = ['fasta_train.fa','fasta_valid.fa','fasta_test.fa',
-                     'calls_train.txt','calls_valid.txt','calls_test.txt']
-        # inFileAdd = ['short_fasta_train.fa','short_fasta_valid.fa','short_fasta_test.fa',
-        #              'short_calls_train.txt','short_calls_valid.txt','short_calls_test.txt']
-        inFiles = [join(inFileBase, i) for i in inFileAdd]
-
-
-
-        batchSize=256
-        nb_trainSamples = int(sum(1 for line in open(inFiles[3])) -1)
-        nb_validationSamples = int(sum(1 for line in open(inFiles[4])) -1)
-        nb_testSamples = int(sum(1 for line in open(inFiles[5])) -1)
-        trainSteps = np.floor(nb_trainSamples / batchSize)
-        validSteps = np.floor(nb_validationSamples / batchSize)
-        testSteps = np.floor(nb_testSamples / batchSize)
-
-        trainGenerator = data_generator(inFiles[0], inFiles[3],
-            batchSize=batchSize, subsetFeatureList=useFeatures)
-        validGenerator = data_generator(inFiles[1], inFiles[4], 
-            batchSize=batchSize, subsetFeatureList=useFeatures)
-        testGenerator = data_generator(inFiles[2], inFiles[5], 
-            batchSize=batchSize, subsetFeatureList=useFeatures)
-
-        trainModel=True
-        # train model if desired
-        if trainModel:
-            model=getModelGivenModelOptionsAndWeightInits(
-                None, None,
-                None, nFeature=len(useFeatures))
-            history  = model.fit_generator(generator=trainGenerator,
-                steps_per_epoch=trainSteps, epochs=trainEpochs, 
-                validation_data=validGenerator, validation_steps=validSteps)
-            # save model
-            model.save(modelFile)
-
-        else:
-            # load model if already trained
-            custom_objects = {'precision': precision,
-            'recall': recall,
-            'positive_accuracy': positive_accuracy,
-            'negative_accuracy': negative_accuracy,
-            'predicted_positives': predicted_positives,
-            'predicted_negatives': predicted_negatives,
-            'possible_positives': possible_positives,
-            'possible_negatives': possible_negatives}
-            model = keras.models.load_model(modelFile, custom_objects=custom_objects)
-
-        # evaluation on a test dataset    
-        testPredict  = model.predict_generator(generator=testGenerator, steps=testSteps)
-        testTrue = np.loadtxt(inFiles[5], dtype=bool, skiprows=1, delimiter='\t')[0:int(testSteps * batchSize),]
-        with open(inFiles[5], 'rU') as inf:
-            testHeader = inf.readline().strip().split('\t')
-
-        # get precision recall curve
-        import matplotlib.pyplot as plt
-        from sklearn.metrics import precision_recall_curve, average_precision_score
-
-        ## which task to test on
-        for task in range(32):  
-            taskName = testHeader[task]
-            prcSaveName = join(saveDirFigures, taskName + '_prc.png')
-
-            pr, re, _ =  precision_recall_curve(testTrue[:,task], testPredict[:,task])
-            average_precision = average_precision_score(testTrue[:,task], testPredict[:,task], average="micro")
-
-            plt.step(re, pr, color='b', alpha=0.2,
-                     where='post')
-            plt.fill_between(re, pr, step='post', alpha=0.2,
-                             color='b')
-
-            plt.xlabel('Recall')
-            plt.ylabel('Precision')
-            plt.ylim([0.0, 1.05])
-            plt.xlim([0.0, 1.0])
-            plt.title(taskName + ' PRC | AP={0:0.2f}'.format(
-                      average_precision))
-            # plt.show(block=False)
-            plt.savefig(prcSaveName)
-            plt.close()
