@@ -295,7 +295,7 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, taskSu
 
     # taskSubset can be used to select a list of tasks for the classifier
     # if none, then do all, 32 in this case
-    if taskSubset==None:
+    if taskSubset is None:
         taskSubset = np.array([i for i in range(32)])
         nTask = len(taskSubset)
     elif type(taskSubset) == int:
@@ -344,8 +344,8 @@ def getModelGivenModelOptionsAndWeightInits(w0_file,w1_file,init_weights, taskSu
             w0=[w0[taskSubset]]
             w1=[w1[taskSubset]]
         else:
-            w0=w0[taskSubset]
-            w1=w1[taskSubset]
+            w0=[w0[i] for i in taskSubset]
+            w1=[w1[i] for i in taskSubset]
         loss=get_weighted_binary_crossentropy(w0_weights=w0,w1_weights=w1)
         model.compile(optimizer=adam,loss=loss,
             metrics=metrics)

@@ -18,6 +18,9 @@ from basset_functions import *
 from os.path import join, exists
 from os import makedirs
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_curve, average_precision_score
+
 # single task across all tasks, unbalanced dataset
 # input files
 positiveCallWeightsFile='/users/bsiranos/analysis/enhancer_conservation/encode_data/broad/ml_train_valid_test/positive_call_weights.txt'
@@ -35,7 +38,7 @@ trainEpochs = 25
 batchSize = 256
 weighted=False
 balanced=True
-for task in tasks:
+for task in tasks[4:]:
     task=int(task)
     taskName = taskHeader[task]
     print('Starting task ' + taskName)
@@ -46,7 +49,7 @@ for task in tasks:
         saveDir = join(baseDir, taskName + '_unbalanced')
 
     modelSaveName = 'basset_model_trained_' + str(trainEpochs) + '.hdf5'
-
+    modelFile = join(saveDir, modelSaveName)
     # create save dir if it doesnt exist
     if not exists(saveDir):
         print('making ' + saveDir)
@@ -90,15 +93,13 @@ for task in tasks:
         steps_per_epoch=trainSteps, epochs=trainEpochs, 
         validation_data=validGenerator, validation_steps=validSteps)
 
-    model.save(join(saveDir, modelSaveName))
+    model.save(modelFile)
 
     # evaluation on a test dataset    
     testPredict  = model.predict_generator(generator=testGenerator, steps=testSteps)
     testTrue = np.loadtxt(inFiles[5], dtype=bool, skiprows=1, delimiter='\t')[0:int(testSteps * batchSize), task]
 
     # get precision recall curve
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import precision_recall_curve, average_precision_score
 
     # prediction evaluation
 
@@ -108,69 +109,43 @@ for task in tasks:
 
     pr, re, _ =  precision_recall_curve(testTrue, testPredict)
     average_precision = average_precision_score(testTrue, testPredict, average="micro")
-
-    prcSaveName = join(saveDir, taskName + '_prc.png')
-    plt.step(re, pr, color='b', alpha=0.2,
-             where='post')
-    plt.fill_between(re, pr, step='post', alpha=0.2,
-                     color='b')
-
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.ylim([0.0, 1.05])
-    plt.xlim([0.0, 1.0])
-    plt.title(taskName + ' PRC | AP={0:0.2f}'.format(
-              average_precision))
-    # plt.show(block=False)
-    plt.savefig(prcSaveName)
-    plt.close()
+    savePrRe = np.array([pr, re]).transpose()
+    savePrReFile = join(saveDir, 'precision_recall.txt')
+    saveAvPrFile = join(saveDir, 'average_precision.txt')
+    np.savetxt(savePrReFile, savePrRe, delimiter='\t', fmt='%2f')
+    with open(saveAvPrFile, 'w') as inf:
+        inf.write(str(average_precision) + '\n')
 
 
-'''
-        else:
-            # load model if already trained
-            custom_objects = {'precision': precision,
+    savePlot = False
+    if savePlot:
+        prcSaveName = join(saveDir, taskName + '_prc.png')
+        plt.step(re, pr, color='b', alpha=0.2,
+                 where='post')
+        plt.fill_between(re, pr, step='post', alpha=0.2,
+                         color='b')
+
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.ylim([0.0, 1.05])
+        plt.xlim([0.0, 1.0])
+        plt.title(taskName + ' PRC | AP={0:0.2f}'.format(
+                  average_precision))
+        # plt.show(block=False)
+        plt.savefig(prcSaveName)
+        plt.close()
+
+    loadModel = False
+    if loadModel:
+        modelFile = join(saveDir, modelSaveName)
+        # load model if already trained
+        custom_objects = {'precision': precision,
             'recall': recall,
-            'positive_accuracy': positive_accuracy,
-            'negative_accuracy': negative_accuracy,
-            'predicted_positives': predicted_positives,
-            'predicted_negatives': predicted_negatives,
-            'possible_positives': possible_positives,
-            'possible_negatives': possible_negatives}
-            model = keras.models.load_model(modelFile, custom_objects=custom_objects)
-
-        # evaluation on a test dataset    
-        testPredict  = model.predict_generator(generator=testGenerator, steps=testSteps)
-        testTrue = np.loadtxt(inFiles[5], dtype=bool, skiprows=1, delimiter='\t')[0:int(testSteps * batchSize),]
-        with open(inFiles[5], 'rU') as inf:
-            testHeader = inf.readline().strip().split('\t')
-
-        # get precision recall curve
-        import matplotlib.pyplot as plt
-        from sklearn.metrics import precision_recall_curve, average_precision_score
-
-# prediction evaluation
-
-        ## which task to test on
-        for task in range(32):  
-            taskName = testHeader[task]
-            prcSaveName = join(saveDirFigures, taskName + '_prc.png')
-
-            pr, re, _ =  precision_recall_curve(testTrue[:,task], testPredict[:,task])
-            average_precision = average_precision_score(testTrue[:,task], testPredict[:,task], average="micro")
-
-            plt.step(re, pr, color='b', alpha=0.2,
-                     where='post')
-            plt.fill_between(re, pr, step='post', alpha=0.2,
-                             color='b')
-
-            plt.xlabel('Recall')
-            plt.ylabel('Precision')
-            plt.ylim([0.0, 1.05])
-            plt.xlim([0.0, 1.0])
-            plt.title(taskName + ' PRC | AP={0:0.2f}'.format(
-                      average_precision))
-            # plt.show(block=False)
-            plt.savefig(prcSaveName)
-            plt.close()
-'''
+        'positive_accuracy': positive_accuracy,
+        'negative_accuracy': negative_accuracy,
+        'predicted_positives': predicted_positives,
+        'predicted_negatives': predicted_negatives,
+        'possible_positives': possible_positives,
+        'possible_negatives': possible_negatives}
+        import keras
+        model = keras.models.load_model(modelFile, custom_objects=custom_objects)
